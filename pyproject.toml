@@ -42,7 +42,7 @@ local_scheme = "no-local-version"
 
 [tool.uv.sources]
 vllm = [
-  { git = "https://github.com/vllm-project/vllm", tag = "0.10.2", marker = "sys_platform == 's390x'" }
+  { git = "https://github.com/vllm-project/vllm", tag = "v0.10.2", marker = "sys_platform == 's390x'" }
 ]
 
 [tool.uv]
