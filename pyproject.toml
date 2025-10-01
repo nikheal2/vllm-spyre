@@ -40,6 +40,10 @@ local_scheme = "no-local-version"
 # For more version configuration, see 
 # https://setuptools-scm.readthedocs.io/en/latest/config/
 
+[tool.uv.sources]
+vllm = [
+  { git = "https://github.com/vllm-project/vllm", tag = "0.10.2", marker = "sys_platform == 's390x'" }
+]
 
 [tool.uv]
 # Never install torch, so that no dependencies can override it.
