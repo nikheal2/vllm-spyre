@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING, Any, Callable
 import torch
 from vllm.logger import init_logger
 
-from sendnn_inference.utils import parse_cpu_mm_dtype
+from sendnn_inference.utils import parse_cpu_mm_dtype, parse_nnpa_mm_dtype
 
 if TYPE_CHECKING:
     SENDNN_INFERENCE_DYNAMO_BACKEND: str = "sendnn"
@@ -25,6 +25,8 @@ if TYPE_CHECKING:
     SENDNN_INFERENCE_REQUIRE_KNOWN_CONFIG: bool = False
     SENDNN_INFERENCE_MODEL_CONFIG_FILE: str | None = None
     SENDNN_INFERENCE_CPU_MM_DTYPE: torch.dtype = torch.float16
+    SENDNN_INFERENCE_NNPA_MM_ENABLED: bool = False
+    SENDNN_INFERENCE_NNPA_MM_DTYPE: torch.dtype = torch.bfloat16
 
 logger = init_logger(__name__)
 
@@ -151,6 +153,19 @@ environment_variables: dict[str, Callable[[], Any]] = {
             "SENDNN_INFERENCE_CPU_MM_DTYPE",
             _CPU_MM_DTYPE_PLATFORM_DEFAULTS.get(platform.machine(), "float16"),
         )
+    ),
+    # Enable NNPA acceleration for the vision tower and multi-modal projector
+    # in multimodal models (e.g. Mistral3 / Pixtral). When set to 1, the vision
+    # pipeline is compiled with torch_nnpa instead of running in CPU eager mode.
+    # Only effective on s390x (IBM Z) with torch_nnpa installed.
+    "SENDNN_INFERENCE_NNPA_MM_ENABLED": lambda: bool(
+        int(os.getenv("SENDNN_INFERENCE_NNPA_MM_ENABLED", "0"))
+    ),
+    # Dtype for vision parameters when running under NNPA.
+    # NNPA natively supports bfloat16; float16 is also valid.
+    # One of "float16" | "bfloat16"; defaults to bfloat16.
+    "SENDNN_INFERENCE_NNPA_MM_DTYPE": lambda: parse_nnpa_mm_dtype(
+        os.getenv("SENDNN_INFERENCE_NNPA_MM_DTYPE", "bfloat16")
     ),
 }
 # --8<-- [end:env-vars-definition]

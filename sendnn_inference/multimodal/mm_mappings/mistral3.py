@@ -15,6 +15,15 @@ from sendnn_inference.multimodal.mm_mappings import MMUtilsBase, MMWarmupInputs
 class Mistral3MMUtils(MMUtilsBase):
     image_token = "[IMG]"
 
+    # Mistral3VisionPipeline wraps these two sub-modules after the FMS refactor.
+    # Include both the direct and the pipeline-prefixed names so dtype casting
+    # works regardless of which FMS version is loaded.
+    mm_parameter_prefixes: ClassVar[tuple[str, ...]] = (
+        "vision_tower.",
+        "multi_modal_projector.",
+        "vision_pipeline.",
+    )
+
     @staticmethod
     def _validate_configs(fms_config: ModelConfig, hf_config: PretrainedConfig):
         """Ensure that configs are properly typed. Additional validation, e.g.,
@@ -124,8 +133,11 @@ class Mistral3MMUtils(MMUtilsBase):
         # Create random embeddings
         warmup_embeds = torch.rand((num_image_tokens, emb_dim))
 
-        # Create dummy pixel_values: normalized float16 tensor (legal format for vision encoder)
-        dummy_pixel_values = torch.rand((3, side_dim, side_dim), dtype=torch.float16)
+        # Create dummy pixel_values with the correct dtype for the target device
+        # (NNPA uses bfloat16 by default; CPU path uses SENDNN_INFERENCE_CPU_MM_DTYPE).
+        dummy_pixel_values = torch.rand(
+            (3, side_dim, side_dim), dtype=self.get_vision_param_dtype()
+        )
 
         # Create image_sizes: logical dimensions of the image
         dummy_image_sizes = torch.tensor([side_dim, side_dim], dtype=torch.long)

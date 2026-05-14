@@ -56,3 +56,14 @@ def parse_cpu_mm_dtype(value: str) -> torch.dtype:
             f"SENDNN_INFERENCE_CPU_MM_DTYPE must be one of {list(_CPU_MM_DTYPES)}, got {value!r}"
         )
     return getattr(torch, value)
+
+
+_NNPA_MM_DTYPES = ("float16", "bfloat16")
+
+
+def parse_nnpa_mm_dtype(value: str) -> torch.dtype:
+    if value not in _NNPA_MM_DTYPES:
+        raise ValueError(
+            f"SENDNN_INFERENCE_NNPA_MM_DTYPE must be one of {list(_NNPA_MM_DTYPES)}, got {value!r}"
+        )
+    return getattr(torch, value)

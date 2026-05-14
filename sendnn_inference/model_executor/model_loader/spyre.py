@@ -244,6 +244,13 @@ class SpyreCausalLM(nn.Module):
 
         if envs_spyre.SENDNN_INFERENCE_DYNAMO_BACKEND in BACKEND_LIST:
             self._cast_params_for_spyre()
+
+            # Compile the vision pipeline for NNPA before the LLM is wrapped by
+            # sendnn. At this point fms_model is still a raw nn.Module so
+            # vision_pipeline is directly assignable.
+            if self.mm_model_utils is not None and envs_spyre.SENDNN_INFERENCE_NNPA_MM_ENABLED:
+                self._compile_vision_for_nnpa()
+
             options = {"sendnn.dynamic": True} if sendnn_dynamic else {}
 
             # Lazy import to avoid load torch_sendnn runtime before it is really
@@ -268,19 +275,25 @@ class SpyreCausalLM(nn.Module):
         logger.debug("Model weights loaded successfully.")
 
     def _cast_params_for_spyre(self):
-        """Cast mm params to SENDNN_INFERENCE_CPU_MM_DTYPE; remaining bf16 params to fp16."""
-        cpu_mm_dtype = envs_spyre.SENDNN_INFERENCE_CPU_MM_DTYPE
+        """Cast vision params to their target dtype (NNPA or CPU); remaining bf16 params to fp16."""
         mm_prefixes = self.mm_model_utils.mm_parameter_prefixes if self.mm_model_utils else ()
+        vision_dtype = (
+            self.mm_model_utils.get_vision_param_dtype()
+            if self.mm_model_utils
+            else envs_spyre.SENDNN_INFERENCE_CPU_MM_DTYPE
+        )
+        target_label = "NNPA" if envs_spyre.SENDNN_INFERENCE_NNPA_MM_ENABLED else "CPU"
 
         for name, param in self.fms_model.named_parameters():
             if name.startswith(mm_prefixes):
-                if param.dtype != cpu_mm_dtype:
+                if param.dtype != vision_dtype:
                     logger.debug(
-                        "Casting vision encoder param %s to %s for CPU execution.",
+                        "Casting vision encoder param %s to %s for %s execution.",
                         name,
-                        cpu_mm_dtype,
+                        vision_dtype,
+                        target_label,
                     )
-                    param.data = param.data.to(dtype=cpu_mm_dtype)
+                    param.data = param.data.to(dtype=vision_dtype)
             elif param.dtype == torch.bfloat16:
                 logger.debug(
                     "You are casting param %s to fp16, which"
@@ -290,6 +303,29 @@ class SpyreCausalLM(nn.Module):
                     name,
                 )
                 param.data = param.data.to(dtype=torch.float16)
+
+    def _compile_vision_for_nnpa(self) -> None:
+        """Replace the vision_pipeline sub-module with an NNPA-compiled version.
+
+        Must be called after _cast_params_for_spyre() (so weights are already
+        in the correct dtype) but before torch.compile(backend="sendnn") wraps
+        self.fms_model (so the raw nn.Module is still accessible).
+
+        Requires fms_model to expose a `vision_pipeline` attribute of type
+        Mistral3VisionPipeline (see FMS Mistral3 model).
+        """
+        if not hasattr(self.fms_model, "vision_pipeline"):
+            raise AttributeError(
+                "SENDNN_INFERENCE_NNPA_MM_ENABLED=1 requires the FMS model to expose "
+                "a `vision_pipeline` sub-module (Mistral3VisionPipeline). "
+                "Ensure the loaded FMS Mistral3 model has been updated with this attribute."
+            )
+
+        compiled_vision = spyre_mm.MMUtilsBase.compile_vision_pipeline_for_nnpa(
+            self.fms_model.vision_pipeline
+        )
+        self.fms_model.vision_pipeline = compiled_vision
+        logger.info("Vision pipeline compiled with torch_nnpa backend for NNPA acceleration.")
 
     def _cast_to_f32(self):
         """Cast model parameters to f32."""

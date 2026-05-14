@@ -1,4 +1,5 @@
 import functools
+import platform
 from abc import ABC, abstractmethod
 from typing import ClassVar, NamedTuple
 
@@ -73,6 +74,56 @@ class MMUtilsBase(ABC):
                 return vocab_sz
             raise ValueError("Provided FMS config has a text_config, but no src_vocab_size!")
         raise ValueError("Provided FMS config has no text config!")
+
+    def get_vision_param_dtype(self) -> torch.dtype:
+        """Return the dtype to cast vision parameters to.
+
+        Returns the NNPA dtype when NNPA is enabled, otherwise the CPU dtype.
+        Callers use this to decide how to cast vision_tower / projector params
+        before compilation.
+        """
+        import sendnn_inference.envs as envs_spyre
+
+        if envs_spyre.SENDNN_INFERENCE_NNPA_MM_ENABLED:
+            return envs_spyre.SENDNN_INFERENCE_NNPA_MM_DTYPE
+        return envs_spyre.SENDNN_INFERENCE_CPU_MM_DTYPE
+
+    @staticmethod
+    def compile_vision_pipeline_for_nnpa(
+        vision_pipeline: torch.nn.Module,
+    ) -> torch.nn.Module:
+        """Wrap the vision pipeline with torch_nnpa if NNPA is enabled.
+
+        Returns the original module unchanged when NNPA is disabled, so callers
+        don't need to branch — they always assign the return value.
+
+        Raises RuntimeError if NNPA is enabled but torch_nnpa is not installed,
+        or if the runtime platform is not s390x.
+        """
+        import sendnn_inference.envs as envs_spyre
+
+        if not envs_spyre.SENDNN_INFERENCE_NNPA_MM_ENABLED:
+            return vision_pipeline
+
+        if platform.machine() != "s390x":
+            raise RuntimeError(
+                "SENDNN_INFERENCE_NNPA_MM_ENABLED=1 is only supported on s390x (IBM Z). "
+                f"Current platform: {platform.machine()}"
+            )
+
+        try:
+            import torch_nnpa  # noqa: F401
+        except ImportError as err:
+            raise RuntimeError(
+                "SENDNN_INFERENCE_NNPA_MM_ENABLED=1 requires torch_nnpa to be installed. "
+                "Install the IBM Z AI Acceleration library."
+            ) from err
+
+        return torch.compile(
+            vision_pipeline,
+            backend="torch_nnpa",
+            dynamic=False,
+        )
 
     def unwrap_mm_kv_cache_opts(self):
         """Unwrap options to be passed for the kv cache from the underlying
