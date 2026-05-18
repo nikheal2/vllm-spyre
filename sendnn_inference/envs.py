@@ -34,12 +34,6 @@ _cache: dict[str, Any] = {}
 
 _CPU_MM_DTYPE_PLATFORM_DEFAULTS = {"s390x": "float32", "ppc64le": "bfloat16"}
 
-# On s390x, torch inductor generates ZVECTOR C++ that calls vec_nor with float
-# types, which is invalid — that intrinsic only accepts integer operands on IBM Z.
-# Default to "eager" on s390x to avoid the compile error; users who have a
-# patched PyTorch build can override to "inductor" for the performance gain.
-_SIMPLE_COMPILE_BACKEND_PLATFORM_DEFAULTS = {"s390x": "eager"}
-
 
 def override(name: str, value: str) -> None:
     if name not in environment_variables:
@@ -128,13 +122,10 @@ environment_variables: dict[str, Callable[[], Any]] = {
     ),
     # Simple compile backend for some dynamically compiled operations, like
     # gathering logprobs in the sampler.
-    # Defaults to "eager"; "inductor" can be used if python headers and a
-    # compiler are available and the platform supports it.
-    # On s390x the default is always "eager" — inductor emits ZVECTOR C++ that
-    # calls vec_nor with float operands, which is rejected by the s390x toolchain.
+    # Defaults to eager, iductor can be used if python headers and a compiler
+    # are available.
     "SENDNN_INFERENCE_SIMPLE_COMPILE_BACKEND": lambda: os.getenv(
-        "SENDNN_INFERENCE_SIMPLE_COMPILE_BACKEND",
-        _SIMPLE_COMPILE_BACKEND_PLATFORM_DEFAULTS.get(platform.machine(), "eager"),
+        "SENDNN_INFERENCE_SIMPLE_COMPILE_BACKEND", "inductor"
     ),
     # Configures the number of CPUs used when determining multi-threading
     # configurations

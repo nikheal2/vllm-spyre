@@ -56,8 +56,10 @@ class Mistral3MMUtils(MMUtilsBase):
         is_decode: bool,
     ) -> torch.Tensor:
         """Get the text or multimodal embeddings for mistral3 using
-        the (potentially compiled) FMS model.
+        the (potentially NNPA-accelerated) FMS model.
         """
+        import sendnn_inference.envs as envs_spyre
+
         fms_kwargs = {"use_cache": True}
 
         # Only merge multimodal features in prefill; nothing mm in decode
@@ -81,6 +83,14 @@ class Mistral3MMUtils(MMUtilsBase):
                 # If squeezed during spec building, add it back
                 if pixel_values.ndim == 3:
                     pixel_values = pixel_values.unsqueeze(0)
+
+                # When NNPA is enabled the vision_pipeline parameters live on the
+                # 'nnpa' device; inputs must be on the same device. Outputs are
+                # moved back to CPU automatically by _merge_multimodal_embeddings
+                # via img_features.to(device, dtype) where device is CPU.
+                if envs_spyre.SENDNN_INFERENCE_NNPA_MM_ENABLED:
+                    pixel_values = pixel_values.to("nnpa")
+
                 fms_kwargs["pixel_values"] = pixel_values
 
                 if "image_sizes" in mm_spec:
@@ -101,10 +111,12 @@ class Mistral3MMUtils(MMUtilsBase):
 
                 fms_kwargs["image_sizes"] = image_sizes
 
+        # torch_nnpa requires inference_mode for full NNPA acceleration.
         # The value of iteration does not matter for decode as long as it's > 0
-        input_embeds, _ = fms_model.prepare_inputs_for_generation(
-            iteration=0 if not is_decode else 1, input_ids=input_ids, kwargs=fms_kwargs
-        )  # ty: ignore[call-non-callable]
+        with torch.inference_mode():
+            input_embeds, _ = fms_model.prepare_inputs_for_generation(
+                iteration=0 if not is_decode else 1, input_ids=input_ids, kwargs=fms_kwargs
+            )  # ty: ignore[call-non-callable]
         return input_embeds
 
     def get_warmup_inputs(self, req_count: int) -> MMWarmupInputs:

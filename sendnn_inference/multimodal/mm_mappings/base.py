@@ -89,10 +89,14 @@ class MMUtilsBase(ABC):
         return envs_spyre.SENDNN_INFERENCE_CPU_MM_DTYPE
 
     @staticmethod
-    def compile_vision_pipeline_for_nnpa(
+    def move_vision_pipeline_to_nnpa(
         vision_pipeline: torch.nn.Module,
     ) -> torch.nn.Module:
-        """Wrap the vision pipeline with torch_nnpa if NNPA is enabled.
+        """Move the vision pipeline to the NNPA device if NNPA is enabled.
+
+        torch_nnpa exposes a custom PyTorch device ('nnpa'). Moving the module
+        with .nnpa() is equivalent to .cuda() — parameters live on the device
+        and op dispatch routes to NNPA kernels automatically.
 
         Returns the original module unchanged when NNPA is disabled, so callers
         don't need to branch — they always assign the return value.
@@ -119,11 +123,7 @@ class MMUtilsBase(ABC):
                 "Install the IBM Z AI Acceleration library."
             ) from err
 
-        return torch.compile(
-            vision_pipeline,
-            backend="torch_nnpa",
-            dynamic=False,
-        )
+        return vision_pipeline.nnpa()
 
     def unwrap_mm_kv_cache_opts(self):
         """Unwrap options to be passed for the kv cache from the underlying
