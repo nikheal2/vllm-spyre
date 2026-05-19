@@ -1,4 +1,5 @@
 import torch
+from typing import ClassVar
 from fms.utils.config import ModelConfig
 from transformers import PretrainedConfig
 from vllm.multimodal.inputs import (
